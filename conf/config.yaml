@@ -1,0 +1,23 @@
+can:
+  iface: "can0"
+  bitrate: 250000         # 需在系统中通过 `ip link set can0 up type can bitrate ...` 配置
+ids:
+  down: 0x100             # 主->灯
+  up:   0x180             # 灯->主
+serial:
+  panel: "/dev/ttyS2"     # COM5 映射的设备（按实际调整）
+  baud: 115200
+timing:
+  g: 20000                # ms
+  y: 3000
+  ar: 1000
+mapping:
+  ns_r: 1
+  ns_y: 2
+  ns_g: 3
+  ew_r: 4
+  ew_y: 5
+  ew_g: 6
+log:
+  file: "/tmp/sigctl.log"
+  max_bytes: 1048576
