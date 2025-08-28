@@ -2,7 +2,7 @@ use crate::types::{Config, Dn, IoEvent, OutMsg, TAIL, Up};
 #[cfg(target_os = "linux")]
 use anyhow::Result;
 #[cfg(target_os = "linux")]
-use socketcan::{CANFrame, CANSocket};
+use socketcan::{CanFrame, CanSocket, Socket, EmbeddedFrame};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::task;
@@ -38,12 +38,11 @@ fn spawn_linux_can(
         let cfg = cfg.clone();
         let tx_evt = tx_evt.clone();
         task::spawn_blocking(move || -> Result<()> {
-            let sock = CANSocket::open(&cfg.can.iface)?;
+            let sock = CanSocket::open(&cfg.can.iface)?;
             crate::log::info(format!("CAN opened on {}", &cfg.can.iface));
             while let Some(msg) = rx_out.blocking_recv() {
                 let payload = pack_dn(&msg);
-                let frame = CANFrame::new(cfg.ids.down, &payload, false, false)
-                    .map_err(|e| anyhow::anyhow!("frame build: {}", e))?;
+                let frame = CanFrame::new(cfg.ids.down, &payload)?;
                 if let Err(e) = sock.write_frame(&frame) {
                     let _ = tx_evt.blocking_send(IoEvent::Raw(vec![0xEE, 0xEE])); // 写错误标记
                     crate::log::error(format!("CAN write error: {}", e));
@@ -57,7 +56,7 @@ fn spawn_linux_can(
     {
         let cfg = cfg.clone();
         task::spawn_blocking(move || -> Result<()> {
-            let sock = CANSocket::open(&cfg.can.iface)?;
+            let sock = CanSocket::open(&cfg.can.iface)?;
             loop {
                 match sock.read_frame() {
                     Ok(f) => {
