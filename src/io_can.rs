@@ -97,18 +97,63 @@ fn spawn_mock_can(
         });
     }
 
-    // 模拟接收线程 - 定期发送一些模拟事件
+    // 模拟接收线程 - 定期发送多种模拟事件
     {
         task::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+            use std::time::Duration;
+            
+            // 启动时发送版本信息
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            let version_event = IoEvent::Version { 
+                board: 1, y: 24, m: 1, d: 15, v1: 1, v2: 0 
+            };
+            let _ = tx_evt.send(version_event).await;
+            crate::log::debug("Mock CAN: sent version info");
+            
+            // 定期发送驱动板状态（每5秒）
+            let mut board_interval = tokio::time::interval(Duration::from_secs(5));
+            let mut lamp_interval = tokio::time::interval(Duration::from_secs(3));
+            let mut voltage_interval = tokio::time::interval(Duration::from_secs(10));
+            
+            let mut board_state = 2u8; // 正常状态
+            let mut lamp_state_counter = 0u16;
+            
             loop {
-                interval.tick().await;
-                // 发送模拟的心跳事件
-                let mock_event = IoEvent::BoardStatus { board: 1, state: 0x01 };
-                if tx_evt.send(mock_event).await.is_err() {
-                    break;
+                tokio::select! {
+                    _ = board_interval.tick() => {
+                        let board_event = IoEvent::BoardStatus { board: 1, state: board_state };
+                        if tx_evt.send(board_event).await.is_err() { break; }
+                        crate::log::debug(format!("Mock CAN: sent board status {}", board_state));
+                    }
+                    
+                    _ = lamp_interval.tick() => {
+                        // 模拟灯组状态变化（简单的循环模式）
+                        lamp_state_counter = (lamp_state_counter + 1) % 4;
+                        let (yg_bits, r_bits) = match lamp_state_counter {
+                            0 => (0x0001, 0x0010), // NS绿，EW红
+                            1 => (0x0002, 0x0010), // NS黄，EW红
+                            2 => (0x0000, 0x0011), // 全红
+                            3 => (0x0008, 0x0004), // EW绿，NS红
+                            _ => (0x0000, 0x0015), // 默认全红
+                        };
+                        
+                        let lamp_event = IoEvent::LampStatus { 
+                            board: 1, yg_bits, r_bits 
+                        };
+                        if tx_evt.send(lamp_event).await.is_err() { break; }
+                        crate::log::debug(format!("Mock CAN: sent lamp status YG:{:04X} R:{:04X}", yg_bits, r_bits));
+                    }
+                    
+                    _ = voltage_interval.tick() => {
+                        // 模拟电压信息（220V ± 10V）
+                        use std::time::{SystemTime, UNIX_EPOCH};
+                        let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as u16;
+                        let voltage_mv = 22000 + (seed % 2000) - 1000;
+                        let voltage_event = IoEvent::VoltageMv { mv: voltage_mv };
+                        if tx_evt.send(voltage_event).await.is_err() { break; }
+                        crate::log::debug(format!("Mock CAN: sent voltage {}mV", voltage_mv));
+                    }
                 }
-                crate::log::debug("Mock CAN: sent simulated board status");
             }
         });
     }
@@ -161,5 +206,176 @@ fn parse_up(d: &[u8]) -> Option<IoEvent> {
             } else { None }
         }
         _ => None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{OutMsg, IoEvent};
+
+    #[test]
+    fn test_pack_heartbeat() {
+        let msg = OutMsg::Heartbeat;
+        let payload = pack_dn(&msg);
+        assert_eq!(payload, vec![0xAB, 0xAB, 0xED]);
+    }
+
+    #[test]
+    fn test_pack_set_lamp() {
+        let msg = OutMsg::SetLamp { ch: 1, state: 2 }; // 通道1置绿
+        let payload = pack_dn(&msg);
+        assert_eq!(payload, vec![0xAA, 0x01, 0x02, 0xED]);
+    }
+
+    #[test]
+    fn test_pack_scheme() {
+        let msg = OutMsg::Scheme { id: 1, bitmap: 0x0105, green_s: 20 };
+        let payload = pack_dn(&msg);
+        assert_eq!(payload, vec![0xA0, 0x01, 0x01, 0x05, 0x14, 0xED]);
+    }
+
+    #[test]
+    fn test_pack_fail_flash() {
+        let msg = OutMsg::FailFlash;
+        let payload = pack_dn(&msg);
+        assert_eq!(payload, vec![0xAD, 0xAD, 0xED]);
+    }
+
+    #[test]
+    fn test_pack_resume() {
+        let msg = OutMsg::Resume;
+        let payload = pack_dn(&msg);
+        assert_eq!(payload, vec![0xAE, 0xAE, 0xED]);
+    }
+
+    #[test]
+    fn test_pack_default_green() {
+        let msg = OutMsg::DefaultGreen { ns: 20, ew: 25 };
+        let payload = pack_dn(&msg);
+        assert_eq!(payload, vec![0xAF, 0x14, 0x19, 0xED]);
+    }
+
+    #[test]
+    fn test_pack_fail_mode() {
+        let msg = OutMsg::FailMode { mode: 0x02 };
+        let payload = pack_dn(&msg);
+        assert_eq!(payload, vec![0xA7, 0x02, 0xED]);
+    }
+
+    #[test]
+    fn test_parse_board_status() {
+        let data = vec![0xB1, 0x01, 0x02, 0xED];
+        let event = parse_up(&data).unwrap();
+        match event {
+            IoEvent::BoardStatus { board, state } => {
+                assert_eq!(board, 1);
+                assert_eq!(state, 2);
+            }
+            _ => panic!("解析错误：期望BoardStatus"),
+        }
+    }
+
+    #[test]
+    fn test_parse_lamp_status() {
+        let data = vec![0xB2, 0x01, 0x00, 0x05, 0x00, 0x10, 0xED];
+        let event = parse_up(&data).unwrap();
+        match event {
+            IoEvent::LampStatus { board, yg_bits, r_bits } => {
+                assert_eq!(board, 1);
+                assert_eq!(yg_bits, 0x0005);
+                assert_eq!(r_bits, 0x0010);
+            }
+            _ => panic!("解析错误：期望LampStatus"),
+        }
+    }
+
+    #[test]
+    fn test_parse_lamp_fault() {
+        let data = vec![0xB3, 0x01, 0x03, 0x02, 0xED];
+        let event = parse_up(&data).unwrap();
+        match event {
+            IoEvent::LampFault { flag, ch, kind } => {
+                assert_eq!(flag, 1);
+                assert_eq!(ch, 3);
+                assert_eq!(kind, 2);
+            }
+            _ => panic!("解析错误：期望LampFault"),
+        }
+    }
+
+    #[test]
+    fn test_parse_can_fault() {
+        let data = vec![0xB4, 0x01, 0x00, 0xED];
+        let event = parse_up(&data).unwrap();
+        match event {
+            IoEvent::CanFault { state, where_ } => {
+                assert_eq!(state, 1);
+                assert_eq!(where_, 0);
+            }
+            _ => panic!("解析错误：期望CanFault"),
+        }
+    }
+
+    #[test]
+    fn test_parse_voltage() {
+        let data = vec![0xB6, 0x01, 0x55, 0xF0, 0xED]; // 22000mV
+        let event = parse_up(&data).unwrap();
+        match event {
+            IoEvent::VoltageMv { mv } => {
+                assert_eq!(mv, 22000);
+            }
+            _ => panic!("解析错误：期望VoltageMv"),
+        }
+    }
+
+    #[test]
+    fn test_parse_version() {
+        let data = vec![0xB8, 0x01, 0x18, 0x01, 0x0F, 0x01, 0x00, 0xED]; // 2024-01-15 v1.0
+        let event = parse_up(&data).unwrap();
+        match event {
+            IoEvent::Version { board, y, m, d, v1, v2 } => {
+                assert_eq!(board, 1);
+                assert_eq!(y, 24);
+                assert_eq!(m, 1);
+                assert_eq!(d, 15);
+                assert_eq!(v1, 1);
+                assert_eq!(v2, 0);
+            }
+            _ => panic!("解析错误：期望Version"),
+        }
+    }
+
+    #[test]
+    fn test_parse_invalid_data() {
+        // 测试无效数据
+        assert!(parse_up(&vec![]).is_none());
+        assert!(parse_up(&vec![0xB1]).is_none());
+        assert!(parse_up(&vec![0xB1, 0x01]).is_none()); // 缺少尾字节
+        assert!(parse_up(&vec![0xB1, 0x01, 0x02, 0xEE]).is_none()); // 错误的尾字节
+        assert!(parse_up(&vec![0xFF, 0x01, 0x02, 0xED]).is_none()); // 未知命令
+    }
+
+    #[test]
+    fn test_protocol_roundtrip() {
+        // 测试编码-解码往返
+        let original_msg = OutMsg::SetLamp { ch: 5, state: 1 };
+        let encoded = pack_dn(&original_msg);
+        
+        // 验证编码结果
+        assert_eq!(encoded.len(), 4);
+        assert_eq!(encoded[0], 0xAA);
+        assert_eq!(encoded[3], 0xED);
+        
+        // 模拟响应：灯组状态上报
+        let response_data = vec![0xB2, 0x01, 0x00, 0x20, 0x00, 0x00, 0xED]; // 通道5黄灯
+        let parsed_event = parse_up(&response_data).unwrap();
+        
+        match parsed_event {
+            IoEvent::LampStatus { board: _, yg_bits, r_bits: _ } => {
+                assert_eq!(yg_bits & 0x0020, 0x0020); // 检查通道5黄灯位
+            }
+            _ => panic!("期望LampStatus响应"),
+        }
     }
 }
