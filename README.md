@@ -1,3 +1,6 @@
+# 交通信号机控制系统
+
+在嵌入式 Linux 主控板（EM928x）+ 灯控板（驱动板）上，实现可投入现场联调的最小可用系统（MVP）：双相位固定配时、CAN 通讯、失联安全降级、面板交互与运维自启；并以内部协议（0xA\*/0xB\*/0xC\*/0xD\*）为标准对接。
 
 # sigctl (skeleton)
 
@@ -8,6 +11,10 @@ cd sigctl
 cargo build --release
 sudo ./target/release/sigctl
 ```
+
+# 设计方案
+
+[设计方案](doc/PLAN.md)
 
 # 配置要点（conf/config.yaml）
 
