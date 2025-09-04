@@ -3,6 +3,8 @@ mod io_can;
 mod ui_panel;
 mod core;
 mod log;
+mod can_func;
+mod modules;
 
 use crate::log as logx;
 

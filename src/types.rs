@@ -10,6 +10,8 @@ pub struct Config {
     pub serial: SerialCfg,
     pub timing: Timing,
     pub mapping: Mapping,
+    #[serde(default)]
+    pub strategy: Strategy, // 可选的策略/计划配置（默认空）
     pub log: LogCfg,
 }
 
@@ -34,6 +36,21 @@ impl Timing {
 pub struct Mapping {
     pub ns_r: u8, pub ns_y: u8, pub ns_g: u8,
     pub ew_r: u8, pub ew_y: u8, pub ew_g: u8,
+}
+
+#[derive(Deserialize, Clone, Debug, Default)]
+pub struct Strategy {
+    #[serde(default)]
+    pub active_profile: Option<String>,
+    #[serde(default)]
+    pub profiles: Vec<NamedTiming>,
+    // 预留：后续可扩展日计划/节假日表
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct NamedTiming {
+    pub name: String,
+    pub timing: Timing,
 }
 
 #[derive(Deserialize, Clone, Debug)]

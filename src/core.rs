@@ -3,6 +3,7 @@ use anyhow::Result;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::{select, sync::mpsc, time::{sleep, Duration}};
+use crate::modules::timing::TimingController;
 
 #[derive(Debug, Clone, PartialEq)]
 enum TrafficState {
@@ -23,14 +24,13 @@ struct StateMetrics {
 }
 
 /// 控制核心：固定配时 -> 输出意图（由 io_can 打包成 0xAA/0xA0）
-pub async fn run(cfg: Arc<Config>, tx_can: mpsc::Sender<OutMsg>, mut rx_evt: mpsc::Receiver<IoEvent>) -> Result<()> {
-    let mut current_state = TrafficState::AllRed;
-    let mut metrics = StateMetrics::default();
-    let start_time = Instant::now();
-    
-    crate::log::info(&format!("控制核心启动，配置：NS绿{}ms，黄{}ms，全红{}ms", 
-        cfg.timing.g().as_millis(), cfg.timing.y().as_millis(), cfg.timing.ar().as_millis()));
-    // 周期心跳任务
+pub async fn run(cfg: Arc<Config>, tx_can: mpsc::Sender<OutMsg>, rx_evt: mpsc::Receiver<IoEvent>) -> Result<()> {
+    crate::log::info(&format!(
+        "主控制器启动：NS绿{}ms，黄{}ms，全红{}ms",
+        cfg.timing.g().as_millis(), cfg.timing.y().as_millis(), cfg.timing.ar().as_millis()
+    ));
+
+    // 周期心跳任务（保持与原C程序一致 100ms）
     let hb_tx = tx_can.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_millis(100));
@@ -40,43 +40,8 @@ pub async fn run(cfg: Arc<Config>, tx_can: mpsc::Sender<OutMsg>, mut rx_evt: mps
         }
     });
 
-    // 初始全红
-    transition_to_state(&mut current_state, &mut metrics, TrafficState::AllRed);
-    all_red(&cfg, &tx_can).await?;
-    sleepy_or_events(cfg.timing.ar(), &mut rx_evt, &mut metrics).await;
-
-    loop {
-        // NS 通行
-        transition_to_state(&mut current_state, &mut metrics, TrafficState::NsGreen);
-        set_ns(&cfg, &tx_can, 2).await?; // NS置绿 (state=2)
-        sleepy_or_events(cfg.timing.g(), &mut rx_evt, &mut metrics).await;
-
-        transition_to_state(&mut current_state, &mut metrics, TrafficState::NsYellow);
-        set_ns(&cfg, &tx_can, 1).await?; // NS黄
-        sleepy_or_events(cfg.timing.y(), &mut rx_evt, &mut metrics).await;
-
-        transition_to_state(&mut current_state, &mut metrics, TrafficState::AllRed);
-        all_red(&cfg, &tx_can).await?;
-        sleepy_or_events(cfg.timing.ar(), &mut rx_evt, &mut metrics).await;
-
-        // EW 通行
-        transition_to_state(&mut current_state, &mut metrics, TrafficState::EwGreen);
-        set_ew(&cfg, &tx_can, 2).await?; // EW置绿
-        sleepy_or_events(cfg.timing.g(), &mut rx_evt, &mut metrics).await;
-
-        transition_to_state(&mut current_state, &mut metrics, TrafficState::EwYellow);
-        set_ew(&cfg, &tx_can, 1).await?; // EW黄
-        sleepy_or_events(cfg.timing.y(), &mut rx_evt, &mut metrics).await;
-
-        transition_to_state(&mut current_state, &mut metrics, TrafficState::AllRed);
-        all_red(&cfg, &tx_can).await?;
-        sleepy_or_events(cfg.timing.ar(), &mut rx_evt, &mut metrics).await;
-        
-        // 定期输出性能统计
-        if metrics.state_changes % 20 == 0 {
-            log_performance_metrics(&metrics, start_time);
-        }
-    }
+    // 将控制权委托给定时控制模块（TimingControl）
+    TimingController::run(cfg, tx_can, rx_evt).await
 }
 
 fn transition_to_state(current: &mut TrafficState, metrics: &mut StateMetrics, new_state: TrafficState) {

@@ -114,6 +114,10 @@ fn spawn_mock_can(
             let mut board_interval = tokio::time::interval(Duration::from_secs(5));
             let mut lamp_interval = tokio::time::interval(Duration::from_secs(3));
             let mut voltage_interval = tokio::time::interval(Duration::from_secs(10));
+            // 新增：周期性注入故障与恢复，用于本地联调降级策略
+            let mut can_fault_interval = tokio::time::interval(Duration::from_secs(15));
+            let mut lamp_fault_interval = tokio::time::interval(Duration::from_secs(25));
+            let mut can_fault_active = false;
             
             let mut board_state = 2u8; // 正常状态
             let mut lamp_state_counter = 0u16;
@@ -152,6 +156,28 @@ fn spawn_mock_can(
                         let voltage_event = IoEvent::VoltageMv { mv: voltage_mv };
                         if tx_evt.send(voltage_event).await.is_err() { break; }
                         crate::log::debug(format!("Mock CAN: sent voltage {}mV", voltage_mv));
+                    }
+
+                    // 新增：模拟 CAN 故障 -> 恢复
+                    _ = can_fault_interval.tick() => {
+                        if !can_fault_active {
+                            can_fault_active = true;
+                            let _ = tx_evt.send(IoEvent::CanFault { state: 1, where_: 1 }).await; // 故障
+                            crate::log::warn("Mock CAN: inject CanFault state=1");
+                            // 3秒后恢复
+                            let tx_evt2 = tx_evt.clone();
+                            task::spawn(async move {
+                                tokio::time::sleep(Duration::from_secs(3)).await;
+                                let _ = tx_evt2.send(IoEvent::CanFault { state: 0, where_: 1 }).await;
+                                crate::log::info("Mock CAN: inject CanFault state=0 (recovered)");
+                            });
+                        }
+                    }
+
+                    // 新增：模拟灯故障一次性事件
+                    _ = lamp_fault_interval.tick() => {
+                        let _ = tx_evt.send(IoEvent::LampFault { flag: 1, ch: 2, kind: 1 }).await;
+                        crate::log::warn("Mock CAN: inject LampFault ch=2 kind=1");
                     }
                 }
             }

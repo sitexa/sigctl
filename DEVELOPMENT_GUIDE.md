@@ -115,12 +115,12 @@ cargo watch -x check
 程序使用分级日志系统：
 
 ```bash
-# 查看实时日志
-tail -f sigctl.log
+# 查看实时日志 
+tail -f /tmp/sigctl.log
 
 # 过滤特定级别
-grep "ERROR" sigctl.log
-grep "状态转换" sigctl.log
+grep "ERROR" /tmp/sigctl.log
+grep "状态转换" /tmp/sigctl.log
 ```
 
 **日志级别说明：**
@@ -164,7 +164,7 @@ grep "驱动板状态\|灯状态\|电压" sigctl.log
 **验证配置文件：**
 ```bash
 # 检查配置文件语法
-python3 -c "import yaml; yaml.safe_load(open('config.yaml'))"
+python3 -c "import yaml; yaml.safe_load(open('conf/config.yaml'))"
 
 # 或使用在线YAML验证器
 ```
