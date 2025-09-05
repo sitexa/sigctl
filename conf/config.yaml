@@ -19,5 +19,5 @@ mapping:
   ew_y: 5
   ew_g: 6
 log:
-  file: "/tmp/sigctl.log"
+  file: "./sigctl.log"
   max_bytes: 1048576
