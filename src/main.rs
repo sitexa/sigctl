@@ -1,9 +1,8 @@
 mod types;
-mod io_can;
 mod ui_panel;
 mod core;
 mod log;
-mod can_func;
+mod can_io;
 mod modules;
 
 use crate::log as logx;
@@ -21,8 +20,8 @@ async fn main() -> Result<()> {
 
     let cfg = Arc::new(cfg);
 
-    // 启动 CAN I/O
-    let (tx_can, rx_evt) = io_can::spawn(cfg.clone());
+    // 启动 CAN I/O (使用统一CAN模块)
+    let (tx_can, rx_evt) = can_io::spawn(cfg.clone());
 
     // 启动面板串口（可选）
     if let Err(e) = ui_panel::spawn(cfg.clone()) {

@@ -14,8 +14,7 @@
 
   * **核心控制器 (`core.rs`)：** 系统的“大脑”，负责启动所有子系统、协调各个模块，并委托控制权给具体的控制模块。它还维护一个周期性的心跳任务，以确保与驱动板的连接正常。
   * **定时控制模块 (`modules/timing.rs`)：** 实现了基于固定配时的交通信号控制逻辑。它是一个状态机，按预设时序在“全红”、“南北向绿”、“南北向黄”、“东西向绿”、“东西向黄”这几种状态间循环切换。该模块还负责处理故障事件，并根据预设规则进行降级处理。
-  * **CAN I/O (`io_can.rs`)：** 负责与底层 CAN 总线进行实际的 I/O 通信。它根据操作系统类型分别实现了 Linux (使用 `socketcan` 库) 和非 Linux (模拟) 两种模式。该模块管理 CAN 帧的打包和解析，并使用异步通道（`mpsc::channel`）与核心控制器进行数据交换。
-  * **CAN 功能库 (`can_func.rs`)：** 另一个 CAN 封装库，提供更通用的、与业务逻辑解耦的 CAN 通信接口，包括初始化、发送、接收回调等功能。虽然项目中使用 `io_can` 进行了具体实现，但 `can_func` 提供了另一种抽象和实现思路。
+  * **CAN I/O (`can_io.rs`)：** CAN 通信模块，根据操作系统类型分别实现了 Linux (使用 `socketcan` 库) 和非 Linux (模拟) 两种模式，提供了配置化的 CAN 接口、错误处理机制和回调功能。该模块管理 CAN 帧的打包和解析，并使用异步通道（`mpsc::channel`）与核心控制器进行数据交换。
   * **面板串口 (`ui_panel.rs`)：** 一个可选的模块，用于与本地操作面板进行串口通信。它只实现了基本的读写骨架，未实现完整的协议解析。
   * **类型定义 (`types.rs`)：** 包含了整个系统的核心数据结构和枚举，如配置结构体 (`Config`)、CAN 命令枚举 (`Dn`、`Up`)、以及业务层消息 (`OutMsg`、`IoEvent`) 等。
   * **日志模块 (`log.rs`)：** 提供了一个简单的文件日志系统，支持日志轮转，用于记录系统运行状态和故障信息。
@@ -78,20 +77,20 @@
 
 #### 模块层次结构和依赖关系
 
-  * `main.rs`：启动入口，依赖 `types`、`io_can`、`ui_panel`、`core`、`log`。
-  * `core.rs`：业务核心，依赖 `types`、`io_can`、`modules::timing`、`log`。
-  * `io_can.rs`：I/O层，依赖 `types`、`log`、`socketcan` (Linux)。
+  * `main.rs`：启动入口，依赖 `types`、`can_io`、`ui_panel`、`core`、`log`。
+* `core.rs`：业务核心，依赖 `types`、`can_io`、`modules::timing`、`log`。
+* `can_io.rs`：I/O层，依赖 `types`、`log`、`socketcan` (Linux)。
   * `modules/timing.rs`：业务逻辑层，依赖 `types`、`log`。
   * `types.rs`：数据模型层，无业务依赖。
   * `log.rs`：工具层，无业务依赖。
-  * `can_func.rs`：通用的 CAN 封装库，当前项目未直接使用，但其测试用例展示了另一种实现方式。
+  
 
 **依赖图**
 
 ```mermaid
 graph TD
     A[main.rs] --> B[core.rs]
-    A --> C[io_can.rs]
+    A --> C[can_io.rs]
     A --> D[ui_panel.rs]
     A --> E[log.rs]
     B --> C
@@ -145,22 +144,22 @@ graph TD
       * `src/`: 源代码根目录
           * `main.rs`: 应用程序入口。
           * `types.rs`: 全局类型定义。
-          * `io_can.rs`: CAN I/O 模块。
+          * `can_io.rs`: 统一的 CAN I/O 模块。
           * `core.rs`: 控制核心。
           * `ui_panel.rs`: 面板串口模块。
           * `log.rs`: 自研日志模块。
-          * `can_func.rs`: 通用 CAN 封装库（当前未使用）。
+          
           * `modules/`: 业务模块目录
               * `timing.rs`: 定时控制模块。
   * **代码风格：** 遵循 Rust 的惯例，使用了 `async/await` 语法和 `mpsc` 通道进行并发通信。函数和变量命名清晰，代码结构良好。
-  * **自动化测试：** 项目包含 `io_can.rs`、`can_func.rs` 和 `modules/timing.rs` 的单元测试。测试用例涵盖了CAN帧的打包/解析以及定时策略选择等核心功能。
+  * **自动化测试：** 项目包含 `can_io.rs` 和 `modules/timing.rs` 的单元测试。测试用例涵盖了CAN帧的打包/解析以及定时策略选择等核心功能。
   * **打包与部署：** 源代码是 Rust 项目，通常使用 `cargo build --release` 进行编译，生成一个可执行文件。部署时只需将可执行文件和配置文件 (`config.yaml`) 放置在目标 Linux 系统上即可。
 
 -----
 
 ### 接口与交互
 
-  * **CAN I/O 接口 (`io_can::spawn`)：**
+  * **CAN I/O 接口 (`can_io::spawn`)：**
       * 输入：`Arc<Config>`
       * 输出：`(mpsc::Sender<OutMsg>, mpsc::Receiver<IoEvent>)`
       * 核心控制器通过 `tx_can` 发送控制命令，通过 `rx_evt` 接收事件。
@@ -169,8 +168,8 @@ graph TD
       * 输出：`Result<PanelHandle>`
       * 提供一个 `PanelHandle`，其中包含一个 `mpsc::Sender` 用于向串口发送原始数据。
   * **数据流向：**
-      * **控制命令：** `core` -\> `tx_can` (通道) -\> `io_can` (发送任务) -\> CAN总线 -\> 驱动板。
-      * **状态事件：** 驱动板 -\> CAN总线 -\> `io_can` (接收任务) -\> `tx_evt` (通道) -\> `core` (或 `timing` 模块) -\> `rx_evt` (通道)。
+      * **控制命令：** `core` -\> `tx_can` (通道) -\> `can_io` (发送任务) -\> CAN总线 -\> 驱动板。
+* **状态事件：** 驱动板 -\> CAN总线 -\> `can_io` (接收任务) -\> `tx_evt` (通道) -\> `core` (或 `timing` 模块) -\> `rx_evt` (通道)。
       * **心跳：** 由 `core` 内部的独立任务周期性发送 `OutMsg::Heartbeat`。
 
 **调用链示例 (正常运行)**
@@ -179,7 +178,7 @@ graph TD
 sequenceDiagram
     participant C as core::run
     participant TC as modules::timing::run
-    participant IO as io_can::spawn
+    participant IO as can_io::spawn
     participant CAN as CAN Bus
 
     C->>IO: spawn(cfg)
@@ -200,7 +199,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant TC as modules::timing::run
-    participant IO as io_can::spawn
+    participant IO as can_io::spawn
     participant CAN as CAN Bus
     
     TC->>CAN: Normal operation...
@@ -260,28 +259,28 @@ sequenceDiagram
 #### 系统可扩展性、可维护性分析
 
   * **可扩展性：**
-      * **CAN 协议：** 新增 CAN 命令或事件时，只需扩展 `types.rs` 中的 `Dn`、`Up`、`OutMsg`、`IoEvent` 枚举，并修改 `io_can.rs` 中的 `pack_dn` 和 `parse_up` 函数即可。
+      * **CAN 协议：** 新增 CAN 命令或事件时，只需扩展 `types.rs` 中的 `Dn`、`Up`、`OutMsg`、`IoEvent` 枚举，并修改 `can_io.rs` 中的 `pack_dn` 和 `parse_up` 函数即可。
       * **控制策略：** `modules/timing` 模块的 `select_timing` 函数已经提供了简单的命名策略选择机制，可以轻松扩展以支持更复杂的日计划或时段控制。
-      * **新接口：** 增加新的 I/O 接口（如网络接口）时，可以参考 `io_can.rs` 的模式，创建一个新的 `spawn` 函数并返回 `(Sender, Receiver)`，然后在 `core.rs` 中进行集成。
+      * **新接口：** 增加新的 I/O 接口（如网络接口）时，可以参考 `can_io.rs` 的模式，创建一个新的 `spawn` 函数并返回 `(Sender, Receiver)`，然后在 `core.rs` 中进行集成。
   * **可维护性：**
-      * 代码结构清晰，职责分离良好。`io_can` 负责底层通信，`timing` 负责业务逻辑，`core` 负责协调。
+      * 代码结构清晰，职责分离良好。`can_io` 负责底层通信，`timing` 负责业务逻辑，`core` 负责协调。
       * 采用了 `tokio` 异步框架，使得 I/O 操作不会阻塞主循环，提高了系统的响应性。
       * 使用了 `mpsc` 通道，实现了模块间的解耦。
 
 #### 关键技术风险、性能瓶颈、安全隐患
 
   * **技术风险：**
-      * **`can_func.rs` 与 `io_can.rs` 的重叠：** 项目中存在两个不同的 CAN 通信封装。`io_can.rs` 直接集成在主逻辑中，而 `can_func.rs` 提供了独立的、更通用的 API。这可能导致混淆和重复开发。
+      * **CAN 模块整合完成：** 原有的 `io_can.rs` 和 `can_func.rs` 功能重叠问题已解决，现已整合为统一的 `can_io.rs` 模块，提供了更清晰、一致的 API 接口。
       * **自研日志：** 自研的日志模块功能简单，可能无法满足复杂的生产需求（如多线程安全、日志级别控制、日志轮转策略、外部系统集成等）。
   * **性能瓶颈：**
-      * **单线程 I/O 任务：** `io_can.rs` 中的发送和接收任务都是 `spawn_blocking` 调用的阻塞式任务。虽然这对于 I/O 密集型操作是合理的，但在高吞吐量场景下可能存在性能瓶颈。
+      * **单线程 I/O 任务：** `can_io.rs` 中的发送和接收任务都是 `spawn_blocking` 调用的阻塞式任务。虽然这对于 I/O 密集型操作是合理的，但在高吞吐量场景下可能存在性能瓶颈。
   * **安全隐患：**
       * **CAN 通信：** CAN 协议本身不提供加密或身份验证。如果物理总线暴露在外，可能存在被恶意注入或篡改 CAN 帧的风险。
       * **配置管理：** 配置文件中的敏感信息（如果存在）未加密。
 
 #### 优化、重构和改进方向
 
-1.  **统一 CAN 模块：** 考虑将 `io_can.rs` 和 `can_func.rs` 的功能合并为一个统一的、可配置的 CAN 模块，提供更清晰的 API。
+1.  **CAN 模块优化：** 已完成 CAN 模块的统一整合，后续可考虑进一步优化性能和错误处理机制。
 2.  **升级日志系统：** 替换自研的日志模块为成熟的、社区支持的 Rust 日志框架，如 `log` 配合 `env_logger`、`tracing` 或 `fern`。这将提供更强大的日志级别控制、格式化和目标输出（如控制台、文件、Syslog）。
 3.  **完善面板通信：** 实现 `ui_panel.rs` 的完整协议解析逻辑，使其能够与操作面板进行双向数据交互，实现手动控制和状态查询功能。
 4.  **引入更灵活的控制逻辑：**

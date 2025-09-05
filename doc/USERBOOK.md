@@ -19,7 +19,7 @@
 - 类型与协议
   - <mcfile name="types.rs" path="/Users/xnpeng/sumoptis/sigctl/src/types.rs"></mcfile>：Config 配置结构、命令与事件枚举、时序/映射/策略等核心类型，以及协议 TAIL 常量（0xED）。
 - CAN I/O 子系统
-  - <mcfile name="io_can.rs" path="/Users/xnpeng/sumoptis/sigctl/src/io_can.rs"></mcfile>：Linux 使用 SocketCAN，非 Linux 使用 Mock；负责 OutMsg→帧编码（0xA*）与 Up 帧（0xB*）解析为 IoEvent。
+  - <mcfile name="can_io.rs" path="/Users/xnpeng/sumoptis/sigctl/src/can_io.rs"></mcfile>：统一的 CAN 通信模块，Linux 使用 SocketCAN，非 Linux 使用 Mock；负责 OutMsg→帧编码（0xA*）与 Up 帧（0xB*）解析为 IoEvent。
 - 控制核心与模块系统
   - <mcfile name="core.rs" path="/Users/xnpeng/sumoptis/sigctl/src/core.rs"></mcfile>：主控骨架（心跳任务 + 委托定时控制模块）。
   - <mcfile name="modules.rs" path="/Users/xnpeng/sumoptis/sigctl/src/modules.rs"></mcfile>：模块系统与定时控制模块 TimingController（状态机+降级逻辑+策略选择）。
@@ -147,7 +147,7 @@
 10) 开发与扩展建议（保持复用与无缝集成）
 - 新策略与日计划：建议在 <mcfile name="modules.rs" path="/Users/xnpeng/sumoptis/sigctl/src/modules.rs"></mcfile> 内新增独立模块并与主控解耦，通过统一接口对接，重用现有 CAN I/O 与日志；通过 <mcfile name="types.rs" path="/Users/xnpeng/sumoptis/sigctl/src/types.rs"></mcfile> 的 Strategy/profiles 进行配置入口扩展，保持“全局唯一、全局一致，不重复创建”。
 - 面板协议扩展：在 <mcfile name="ui_panel.rs" path="/Users/xnpeng/sumoptis/sigctl/src/ui_panel.rs"></mcfile> 中完成 0xC*/0xD* 编解码与事件上报；不要改变现有主控与 CAN I/O 交互。
-- 协议演进：如需新增 0xA*/0xB* 指令与事件，先在 <mcfile name="types.rs" path="/Users/xnpeng/sumoptis/sigctl/src/types.rs"></mcfile> 扩展枚举与 OutMsg/IoEvent，再在 <mcfile name="io_can.rs" path="/Users/xnpeng/sumoptis/sigctl/src/io_can.rs"></mcfile> 实现打包/解析与测试，确保兼容现有逻辑。
+- 协议演进：如需新增 0xA*/0xB* 指令与事件，先在 <mcfile name="types.rs" path="/Users/xnpeng/sumoptis/sigctl/src/types.rs"></mcfile> 扩展枚举与 OutMsg/IoEvent，再在 <mcfile name="can_io.rs" path="/Users/xnpeng/sumoptis/sigctl/src/can_io.rs"></mcfile> 实现打包/解析与测试，确保兼容现有逻辑。
 
 11) 快速开始（摘要）
 - Linux 设备：

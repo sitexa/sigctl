@@ -55,7 +55,7 @@ sigctl/
 ├── src/
 │   ├── main.rs          # 程序入口
 │   ├── types.rs         # 数据结构定义
-│   ├── io_can.rs        # CAN通信模块
+│   ├── can_io.rs        # CAN通信模块
 │   ├── core.rs          # 控制核心逻辑
 │   ├── ui_panel.rs      # 面板通信模块
 │   └── log.rs           # 日志模块
@@ -68,7 +68,7 @@ sigctl/
 
 ### 核心模块说明
 
-- **io_can.rs**: CAN通信抽象层，Linux使用SocketCAN，macOS使用模拟接口
+- **can_io.rs**: 统一的CAN通信抽象层，Linux使用SocketCAN，macOS使用模拟接口
 - **core.rs**: 状态机控制逻辑，实现固定配时信号控制
 - **types.rs**: 系统配置和消息类型定义
 - **ui_panel.rs**: 串口面板通信 (可选)
@@ -203,7 +203,7 @@ htop -p $(pgrep sigctl)
 cargo test
 
 # 运行特定模块测试
-cargo test io_can::tests
+cargo test can_io::tests
 
 # 显示测试输出
 cargo test -- --nocapture
@@ -243,10 +243,10 @@ cargo test test_pack_heartbeat
 
 ```bash
 # 测试CAN协议编解码
-cargo test io_can::tests::test_protocol_roundtrip
+cargo test can_io::tests::test_protocol_roundtrip
 
 # 测试所有协议功能
-cargo test io_can::tests
+cargo test can_io::tests
 ```
 
 ## 常见问题
